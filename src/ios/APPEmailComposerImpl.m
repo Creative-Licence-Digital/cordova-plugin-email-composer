@@ -1,5 +1,5 @@
 /*
- Copyright 2013-2015 appPlant UG
+ Copyright 2013-2016 appPlant UG
 
  Licensed to the Apache Software Foundation (ASF) under one
  or more contributor license agreements.  See the NOTICE file
@@ -47,10 +47,14 @@
 - (NSArray*) canSendMail:(NSString*)scheme
 {
     bool canSendMail = [MFMailComposeViewController canSendMail];
-
-    bool withScheme = false;
-    scheme = [[scheme stringByAppendingString:@":test@test.de"] 
-                stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding ];
+    bool withScheme  = false;
+    
+    if (![scheme hasSuffix:@":"]) {
+        scheme = [scheme stringByAppendingString:@":"];
+    }
+    
+    scheme = [[scheme stringByAppendingString:@"test@test.de"]
+                stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
 
     NSURL *url = [[NSURL URLWithString:scheme]
                     absoluteURL];
@@ -59,9 +63,9 @@
                    canOpenURL:url];
 
     if (TARGET_IPHONE_SIMULATOR && [scheme hasPrefix:@"mailto:"]) {
-        canSendMail = true;
+        canSendMail = withScheme = true;
     }
-    
+
     NSArray* resultArray = [NSArray arrayWithObjects:@(canSendMail),@(withScheme), nil];
 
     return resultArray;
@@ -321,8 +325,7 @@
     absPath = [path stringByReplacingOccurrencesOfString:@"file://"
                                               withString:@""];
 
-    if (![fileManager fileExistsAtPath:absPath])
-    {
+    if (![fileManager fileExistsAtPath:absPath]) {
         NSLog(@"File not found: %@", absPath);
     }
 
@@ -341,22 +344,22 @@
  */
 - (NSData*) dataForResource:(NSString*)path
 {
-    NSFileManager* fileManager = [NSFileManager defaultManager];
-    NSString* absPath;
+    NSString* imgName = [[path pathComponents].lastObject
+                         stringByDeletingPathExtension];
 
-    NSBundle* mainBundle = [NSBundle mainBundle];
-    NSString* bundlePath = [[mainBundle bundlePath]
-                            stringByAppendingString:@"/"];
+#ifdef __CORDOVA_4_0_0
+    if ([imgName isEqualToString:@"icon"]) {
+        imgName = @"AppIcon60x60@3x";
+    }
+#endif
 
-    absPath = [path pathComponents].lastObject;
+    UIImage* img = [UIImage imageNamed:imgName];
 
-    absPath = [bundlePath stringByAppendingString:absPath];
-
-    if (![fileManager fileExistsAtPath:absPath]){
-        NSLog(@"File not found: %@", absPath);
+    if (img == NULL) {
+        NSLog(@"File not found: %@", path);
     }
 
-    NSData* data = [fileManager contentsAtPath:absPath];
+    NSData* data = UIImagePNGRepresentation(img);
 
     return data;
 }
@@ -383,7 +386,7 @@
 
     absPath = [bundlePath stringByAppendingString:absPath];
 
-    if (![fileManager fileExistsAtPath:absPath]){
+    if (![fileManager fileExistsAtPath:absPath]) {
         NSLog(@"File not found: %@", absPath);
     }
 

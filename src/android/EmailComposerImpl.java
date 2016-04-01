@@ -23,6 +23,7 @@
 
 package de.appplant.cordova.emailcomposer;
 
+import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.content.Context;
 import android.content.Intent;
@@ -30,7 +31,6 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.net.Uri;
-import android.os.Build;
 import android.text.Html;
 import android.util.Base64;
 import android.util.Log;
@@ -46,20 +46,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
+import static de.appplant.cordova.emailcomposer.EmailComposer.LOG_TAG;
+
 /**
  * Implements the interface methods of the plugin.
  */
 public class EmailComposerImpl {
 
     /**
-     * The log tag for this plugin
-     */
-    static private final String LOG_TAG_EMAIL_COMPOSER = "EmailComposer";
-
-    /**
      * The default mailto: scheme.
      */
-    static private final String MAILTO_SCHEME = "mailto";
+    static private final String MAILTO_SCHEME = "mailto:";
 
     /**
      * Path where to put tmp the attachments.
@@ -82,11 +79,9 @@ public class EmailComposerImpl {
 
             File[] files = dir.listFiles();
 
-            for (File file : files) {
-                file.delete();
-            }
+            for (File file : files) { file.delete(); }
         } catch (Exception npe){
-            Log.w(LOG_TAG_EMAIL_COMPOSER, "Missing external cache dir");
+            Log.w(LOG_TAG, "Missing external cache dir");
         }
     }
 
@@ -99,13 +94,12 @@ public class EmailComposerImpl {
      * The application context.
      */
     public boolean[] canSendMail (String id, Context ctx) {
-        //is possible with specified app
+        // is possible with specified app
         boolean withScheme = isAppInstalled(id, ctx);
-        //is possible in general
+        // is possible in general
         boolean isPossible = isEmailAccountConfigured(ctx);
-        boolean[] result = {isPossible,withScheme};
 
-        return result;
+        return new boolean[] { isPossible, withScheme };
     }
 
     /**
@@ -122,7 +116,7 @@ public class EmailComposerImpl {
     public Intent getDraftWithProperties (JSONObject params, Context ctx)
             throws JSONException {
 
-        Intent mail = new Intent(Intent.ACTION_SEND_MULTIPLE);
+        Intent mail = getEmailIntent();
         String app  = params.optString("app", null);
 
         if (params.has("subject"))
@@ -141,8 +135,6 @@ public class EmailComposerImpl {
         if (!app.equals(MAILTO_SCHEME) && isAppInstalled(app, ctx)) {
             mail.setPackage(app);
         }
-
-        mail.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
         return mail;
     }
@@ -170,18 +162,9 @@ public class EmailComposerImpl {
      * The intent to send.
      */
     private void setBody (String body, Boolean isHTML, Intent draft) {
+        CharSequence text = isHTML ? Html.fromHtml(body) : body;
 
-        if (isHTML) {
-            draft.putExtra(Intent.EXTRA_TEXT, Html.fromHtml(body));
-            draft.setType("text/html");
-
-            if (Build.VERSION.SDK_INT > 15) {
-                draft.putExtra(Intent.EXTRA_HTML_TEXT, body);
-            }
-        } else {
-            draft.putExtra(Intent.EXTRA_TEXT, body);
-            draft.setType("text/plain");
-        }
+        draft.putExtra(Intent.EXTRA_TEXT, text);
     }
 
     /**
@@ -263,7 +246,12 @@ public class EmailComposerImpl {
             uris.add(uri);
         }
 
-        draft.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        if (uris.isEmpty())
+            return;
+
+        draft.setAction(Intent.ACTION_SEND_MULTIPLE)
+             .setType("message/rfc822")
+             .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
     }
 
     /**
@@ -303,7 +291,7 @@ public class EmailComposerImpl {
         File file      = new File(absPath);
 
         if (!file.exists()) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "File not found: " + file.getAbsolutePath());
+            Log.e(LOG_TAG, "File not found: " + file.getAbsolutePath());
         }
 
         return Uri.fromFile(file);
@@ -326,7 +314,7 @@ public class EmailComposerImpl {
         File dir        = ctx.getExternalCacheDir();
 
         if (dir == null) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "Missing external cache dir");
+            Log.e(LOG_TAG, "Missing external cache dir");
             return Uri.EMPTY;
         }
 
@@ -347,7 +335,7 @@ public class EmailComposerImpl {
             outStream.flush();
             outStream.close();
         } catch (Exception e) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "File not found: assets/" + resPath);
+            Log.e(LOG_TAG, "File not found: assets/" + resPath);
             e.printStackTrace();
         } finally {
             if (outStream != null) {
@@ -377,7 +365,7 @@ public class EmailComposerImpl {
         File dir         = ctx.getExternalCacheDir();
 
         if (dir == null) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "Missing external cache dir");
+            Log.e(LOG_TAG, "Missing external cache dir");
             return Uri.EMPTY;
         }
 
@@ -386,7 +374,7 @@ public class EmailComposerImpl {
         File file        = new File(storage, resName + extension);
 
         if (resId == 0) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "File not found: " + resPath);
+            Log.e(LOG_TAG, "File not found: " + resPath);
         }
 
         new File(storage).mkdir();
@@ -432,12 +420,12 @@ public class EmailComposerImpl {
         try {
             bytes = Base64.decode(resData, 0);
         } catch (Exception ignored) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "Invalid Base64 string");
+            Log.e(LOG_TAG, "Invalid Base64 string");
             return Uri.EMPTY;
         }
 
         if (dir == null) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "Missing external cache dir");
+            Log.e(LOG_TAG, "Missing external cache dir");
             return Uri.EMPTY;
         }
 
@@ -477,7 +465,7 @@ public class EmailComposerImpl {
         byte[] buffer = new byte[1024];
         int read;
 
-        while((read = in.read(buffer)) != -1){
+        while ((read = in.read(buffer)) != -1) {
             out.write(buffer, 0, read);
         }
     }
@@ -523,26 +511,20 @@ public class EmailComposerImpl {
      * true if available, otherwise false
      */
     private boolean isEmailAccountConfigured (Context ctx) {
-        Uri uri           = Uri.fromParts("mailto", "max@mustermann.com", null);
-        Intent intent     = new Intent(Intent.ACTION_SENDTO, uri);
-        PackageManager pm = ctx.getPackageManager();
-        int apps          = pm.queryIntentActivities(intent, 0).size();
-
-        if (apps == 0) {
-            return false;
-        }
-
         AccountManager am  = AccountManager.get(ctx);
-        int accounts;
 
         try {
-            accounts = am.getAccounts().length;
+            for (Account account : am.getAccounts()) {
+                if (account.type.endsWith("mail")) {
+                    return true;
+                }
+            }
         } catch (Exception e) {
-            Log.e(LOG_TAG_EMAIL_COMPOSER, "Missing GET_ACCOUNTS permission.");
+            Log.e(LOG_TAG, "Missing GET_ACCOUNTS permission.");
             return true;
         }
 
-        return accounts > 0;
+        return false;
     }
 
     /**
@@ -555,32 +537,57 @@ public class EmailComposerImpl {
      * @return
      * true if yes otherwise false.
      */
-    private boolean isAppInstalled(String id, Context ctx) {
+    private boolean isAppInstalled (String id, Context ctx) {
+
+        if (id.equalsIgnoreCase(MAILTO_SCHEME)) {
+            Intent intent     = getEmailIntent();
+            PackageManager pm = ctx.getPackageManager();
+            int apps          = pm.queryIntentActivities(intent, 0).size();
+
+            return (apps > 0);
+        }
+
         try {
             ctx.getPackageManager().getPackageInfo(id, 0);
             return true;
-        } catch(PackageManager.NameNotFoundException e) {
+        } catch (PackageManager.NameNotFoundException e) {
             return false;
         }
     }
 
     /**
+     * Setup an intent to send to email apps only.
+     *
+     * @return intent
+     */
+    private static Intent getEmailIntent() {
+        Intent intent = new Intent(Intent.ACTION_SENDTO,
+                Uri.parse(MAILTO_SCHEME));
+
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        return intent;
+    }
+
+    /**
      * Attempt to safely close the given stream.
-     * 
+     *
      * @param outStream
      * The stream to close.
      * @return
      * true if successful, false otherwise
      */
-    private static boolean safeClose(final FileOutputStream outStream) {
+    private static boolean safeClose (final FileOutputStream outStream) {
+
         if (outStream != null) {
             try {
                 outStream.close();
                 return true;
             } catch (IOException e) {
-                Log.e(LOG_TAG_EMAIL_COMPOSER, "Error attempting to safely close resource: " + e.getMessage());
+                Log.e(LOG_TAG, "Error attempting to safely close resource: " + e.getMessage());
             }
         }
+
         return false;
     }
 
