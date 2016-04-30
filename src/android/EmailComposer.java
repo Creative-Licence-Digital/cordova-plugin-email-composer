@@ -1,5 +1,5 @@
 /*
-    Copyright 2013-2015 appPlant UG
+    Copyright 2013-2016 appPlant UG
 
     Licensed to the Apache Software Foundation (ASF) under one
     or more contributor license agreements.  See the NOTICE file
@@ -21,8 +21,11 @@
 
 package de.appplant.cordova.emailcomposer;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.util.Log;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
@@ -40,11 +43,25 @@ import java.util.List;
 @SuppressWarnings("Convert2Diamond")
 public class EmailComposer extends CordovaPlugin {
 
+    /**
+     * The log tag for this plugin
+     */
+    static protected final String LOG_TAG = "EmailComposer";
+
     // Implementation of the plugin.
     private final EmailComposerImpl impl = new EmailComposerImpl();
 
     // The callback context used when calling back into JavaScript
     private CallbackContext command;
+
+    // arguments to call with exec()
+    private JSONArray args;
+
+    // actions to be called in exec()
+    private static final int OPEN = 0;
+    private static final int IS_AVAILABLE = 1;
+
+    private final static String [] permissions = { Manifest.permission.GET_ACCOUNTS };
 
     /**
      * Delete externalCacheDirectory on appstart
@@ -78,20 +95,53 @@ public class EmailComposer extends CordovaPlugin {
     public boolean execute (String action, JSONArray args,
                             CallbackContext callback) throws JSONException {
 
+        this.args = args;
         this.command = callback;
 
         if ("open".equalsIgnoreCase(action)) {
-            open(args);
+            if(cordova.hasPermission(Manifest.permission.GET_ACCOUNTS)) {
+                open(args);
+            } else {
+                cordova.requestPermissions(this, OPEN, permissions);
+            }
+
             return true;
         }
 
         if ("isAvailable".equalsIgnoreCase(action)) {
-            isAvailable(args.getString(0));
+            if(cordova.hasPermission(Manifest.permission.GET_ACCOUNTS)) {
+                isAvailable(args.getString(0));
+            } else {
+                cordova.requestPermissions(this, IS_AVAILABLE, permissions);
+            }
+
             return true;
         }
 
-        // Returning false results in a "MethodNotFound" error.
         return false;
+    }
+
+    @Override
+    public void onRequestPermissionResult(int requestCode, String[] permissions,
+                                          int[] grantResults) throws JSONException
+    {
+        for(int r:grantResults)
+        {
+            if(r == PackageManager.PERMISSION_DENIED) {
+                Log.d(LOG_TAG, "permission denied");
+                return;
+            }
+        }
+
+        switch(requestCode)
+        {
+            case OPEN:
+                open(this.args);
+                break;
+            case IS_AVAILABLE:
+                isAvailable(this.args.getString(0));
+                break;
+        }
     }
 
     /**
@@ -108,13 +158,14 @@ public class EmailComposer extends CordovaPlugin {
     private void isAvailable (final String id) {
         cordova.getThreadPool().execute(new Runnable() {
             public void run() {
-                boolean[] available   = impl.canSendMail(id, getContext());
-
+                boolean[] available = impl.canSendMail(id, getContext());
                 List<PluginResult> messages = new ArrayList<PluginResult>();
+
                 messages.add(new PluginResult(PluginResult.Status.OK, available[0]));
                 messages.add(new PluginResult(PluginResult.Status.OK, available[1]));
 
-                PluginResult result = new PluginResult(PluginResult.Status.OK,messages);
+                PluginResult result = new PluginResult(
+                        PluginResult.Status.OK, messages);
 
                 command.sendPluginResult(result);
             }
@@ -133,13 +184,12 @@ public class EmailComposer extends CordovaPlugin {
         String appId     = props.getString("app");
 
         if (!(impl.canSendMail(appId, getContext()))[0]) {
-            LOG.i("EmailComposer",
-                    "Cannot send mail. No client or account found for.");
+            LOG.i(LOG_TAG, "No client or account found for.");
             return;
         }
 
-        Intent draft     = impl.getDraftWithProperties(props, getContext());
-        String header    = props.optString("chooserHeader", "Open with");
+        Intent draft  = impl.getDraftWithProperties(props, getContext());
+        String header = props.optString("chooserHeader", "Open with");
 
         final Intent chooser = Intent.createChooser(draft, header);
         final EmailComposer plugin = this;
@@ -164,8 +214,8 @@ public class EmailComposer extends CordovaPlugin {
      */
     @Override
     public void onActivityResult(int reqCode, int resCode, Intent intent) {
-        if (null != command) {
-            command.success();   
+        if (command != null) {
+            command.success();
         }
     }
 
